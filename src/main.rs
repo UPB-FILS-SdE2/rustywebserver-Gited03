@@ -9,7 +9,7 @@ use tokio::process::Command;
 static NOTFOUND: &[u8] = b"Not Found";
 
 async fn handle_request(req: Request<Body>, root_folder: PathBuf) -> Result<Response<Body>, Infallible> {
-    let path = req.uri().path();
+    let path = req.uri().path().to_string();
     let method = req.method();
 
     let mut response = Response::new(Body::empty());
