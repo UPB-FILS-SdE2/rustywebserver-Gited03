@@ -3,88 +3,11 @@ use hyper::{Body, Request, Response, Server, Method, StatusCode};
 use std::convert::Infallible;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-static NOTFOUND: &[u8] = b"Not Found";
-
-use hyper::{Body, Request, Response, Method, StatusCode};
-use std::convert::Infallible;
-use std::fs;
 use std::path::PathBuf;
 use tokio::process::Command;
 
 static NOTFOUND: &[u8] = b"Not Found";
 
-async fn handle_request(req: Request<Body>, root_folder: PathBuf) -> Result<Response<Body>, Infallible> {
-    let path = req.uri().path().to_string();
-    let method = req.method().clone();
-
-    let mut response = Response::new(Body::empty());
-
-    if method == Method::GET {
-        let file_path = root_folder.join(path.trim_start_matches('/'));
-        if file_path.exists() {
-            let contents = fs::read(&file_path);
-            if contents.is_ok() {
-                let contents = contents.unwrap();
-                let mime_type = if file_path.extension().is_some() {
-                    let ext = file_path.extension().unwrap().to_str().unwrap();
-                    if ext == "html" {
-                        "text/html; charset=utf-8"
-                    } else if ext == "css" {
-                        "text/css; charset=utf-8"
-                    } else if ext == "js" {
-                        "text/javascript; charset=utf-8"
-                    } else if ext == "jpg" || ext == "jpeg" {
-                        "image/jpeg"
-                    } else if ext == "png" {
-                        "image/png"
-                    } else if ext == "zip" {
-                        "application/zip"
-                    } else {
-                        "application/octet-stream"
-                    }
-                } else {
-                    "application/octet-stream"
-                };
-                response.headers_mut().insert(hyper::header::CONTENT_TYPE, mime_type.parse().unwrap());
-                *response.body_mut() = Body::from(contents);
-            } else {
-                *response.status_mut() = StatusCode::FORBIDDEN;
-            }
-        } else {
-            *response.status_mut() = StatusCode::NOT_FOUND;
-            *response.body_mut() = Body::from(NOTFOUND);
-        }
-    } else if method == Method::POST {
-        if path.starts_with("/scripts/") {
-            let script_path = root_folder.join(path.trim_start_matches('/'));
-            if script_path.exists() && script_path.is_file() {
-                let output = Command::new(script_path)
-                    .output()
-                    .await;
-                if output.is_ok() {
-                    let output = output.unwrap();
-                    *response.status_mut() = StatusCode::OK;
-                    *response.body_mut() = Body::from(output.stdout);
-                } else {
-                    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                }
-            } else {
-                *response.status_mut() = StatusCode::NOT_FOUND;
-                *response.body_mut() = Body::from(NOTFOUND);
-            }
-        } else {
-            *response.status_mut() = StatusCode::NOT_FOUND;
-            *response.body_mut() = Body::from(NOTFOUND);
-        }
-    } else {
-        *response.status_mut() = StatusCode::NOT_FOUND;
-        *response.body_mut() = Body::from(NOTFOUND);
-    }
-
-    Ok(response)
-}
 async fn handle_request(req: Request<Body>, root_folder: PathBuf) -> Result<Response<Body>, Infallible> {
     let path = req.uri().path();
     let method = req.method();
@@ -93,15 +16,45 @@ async fn handle_request(req: Request<Body>, root_folder: PathBuf) -> Result<Resp
 
     if method == Method::GET {
         let file_path = root_folder.join(&path[1..]);
-        if file_path.exists() {
-            let contents = fs::read(file_path);
-            match contents {
-                Ok(data) => {
-                    *response.body_mut() = Body::from(data);
-                }
+        if file_path.exists() && file_path.is_file() {
+            match fs::read(&file_path) {
+                Ok(contents) => {
+                    let mime_type = match file_path.extension().and_then(|ext| ext.to_str()) {
+                        Some("html") => "text/html; charset=utf-8",
+                        Some("css") => "text/css; charset=utf-8",
+                        Some("js") => "text/javascript; charset=utf-8",
+                        Some("jpg") | Some("jpeg") => "image/jpeg",
+                        Some("png") => "image/png",
+                        Some("zip") => "application/zip",
+                        _ => "application/octet-stream",
+                    };
+                    response.headers_mut().insert(hyper::header::CONTENT_TYPE, mime_type.parse().unwrap());
+                    *response.body_mut() = Body::from(contents);
+                },
                 Err(_) => {
                     *response.status_mut() = StatusCode::FORBIDDEN;
+                },
+            }
+        } else {
+            *response.status_mut() = StatusCode::NOT_FOUND;
+            *response.body_mut() = Body::from(NOTFOUND);
+        }
+    } else if method == Method::POST {
+        if path.starts_with("/scripts/") {
+            let script_path = root_folder.join(&path[1..]);
+            if script_path.exists() && script_path.is_file() {
+                match Command::new(script_path).output().await {
+                    Ok(output) => {
+                        *response.status_mut() = StatusCode::OK;
+                        *response.body_mut() = Body::from(output.stdout);
+                    },
+                    Err(_) => {
+                        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    },
                 }
+            } else {
+                *response.status_mut() = StatusCode::NOT_FOUND;
+                *response.body_mut() = Body::from(NOTFOUND);
             }
         } else {
             *response.status_mut() = StatusCode::NOT_FOUND;
